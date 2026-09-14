@@ -1,16 +1,131 @@
 services:
+  postgres:
+    image: postgres:18.6-bookworm
+    container_name: socialx-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB}
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+    ports:
+      - "${POSTGRES_HOST_PORT:-15432}:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}",
+        ]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 5s
+    networks:
+      - socialx-network
+
+  redis:
+    image: redis:8.2.9-bookworm
+    container_name: socialx-redis
+    restart: unless-stopped
+    command: ["redis-server", "--appendonly", "yes"]
+    ports:
+      - "${REDIS_HOST_PORT:-16379}:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+      start_period: 5s
+    networks:
+      - socialx-network
+
   backend:
     build:
       context: ./backend
       dockerfile: Dockerfile
     container_name: socialx-backend
+    restart: unless-stopped
+    working_dir: /app
+    environment:
+      NODE_ENV: development
+      DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}?schema=public
+      REDIS_URL: redis://redis:6379
     ports:
       - "${BACKEND_PORT:-3001}:3000"
+    volumes:
+      - ./backend:/app
+      - backend_node_modules:/app/node_modules
+    command: npm run start:dev
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "node -e \"fetch('http://127.0.0.1:3000').then(r => process.exit(r.ok ? 0 : 1)).catch(() => process.exit(1))\"",
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 15s
+    networks:
+      - socialx-network
 
   frontend:
     build:
       context: ./frontend
       dockerfile: Dockerfile
     container_name: socialx-frontend
+    restart: unless-stopped
+    working_dir: /app
+    environment:
+      # Used by browser/client-side requests.
+      NEXT_PUBLIC_API_BASE_URL: http://localhost:${BACKEND_PORT:-3001}
+
+      # Reserved for server-side communication inside Docker.
+      INTERNAL_API_BASE_URL: http://backend:3000
     ports:
       - "${FRONTEND_PORT:-3000}:3000"
+    volumes:
+      - ./frontend:/app
+      - frontend_node_modules:/app/node_modules
+    command: npm run dev -- --hostname 0.0.0.0
+    depends_on:
+      backend:
+        condition: service_healthy
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "node -e \"fetch('http://127.0.0.1:3000').then(r => process.exit(r.ok ? 0 : 1)).catch(() => process.exit(1))\"",
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 15s
+    networks:
+      - socialx-network
+
+networks:
+  socialx-network:
+    name: socialx-network
+    driver: bridge
+
+volumes:
+  postgres_data:
+    name: socialx-postgres-data
+
+  redis_data:
+    name: socialx-redis-data
+
+  backend_node_modules:
+    name: socialx-backend-node-modules
+
+  frontend_node_modules:
+    name: socialx-frontend-node-modules

@@ -31,10 +31,50 @@ docker compose build
 echo "==> Starting services..."
 docker compose up -d
 
+echo "==> Synchronizing backend dependencies..."
+docker compose exec -T backend npm ci
+
+echo "==> Synchronizing frontend dependencies..."
+docker compose exec -T frontend npm ci
+
+echo "==> Waiting for services..."
+
+for attempt in $(seq 1 30); do
+  unhealthy_services="$(
+    docker compose ps \
+      --format json |
+    grep -c '"Health":"unhealthy"' || true
+  )"
+
+  starting_services="$(
+    docker compose ps \
+      --format json |
+    grep -c '"Health":"starting"' || true
+  )"
+
+  if [ "$unhealthy_services" -gt 0 ]; then
+    echo "One or more services are unhealthy."
+    docker compose ps
+    exit 1
+  fi
+
+  if [ "$starting_services" -eq 0 ]; then
+    break
+  fi
+
+  if [ "$attempt" -eq 30 ]; then
+    echo "Timed out waiting for services."
+    docker compose ps
+    exit 1
+  fi
+
+  sleep 2
+done
+
 echo "==> Current services:"
 docker compose ps
 
 echo
-echo "SocialX is starting:"
-echo "Frontend: http://localhost:3000"
-echo "Backend:  http://localhost:3001"
+echo "SocialX development environment is ready."
+echo "Frontend: http://localhost:${FRONTEND_PORT:-3000}"
+echo "Backend:  http://localhost:${BACKEND_PORT:-3001}"
