@@ -1,0 +1,29 @@
+# Environment
+.env
+.env.*
+!.env.example
+
+# Dependencies
+backend/node_modules/
+frontend/node_modules/
+
+# Build output
+backend/dist/
+frontend/.next/
+frontend/out/
+
+# Test coverage
+backend/coverage/
+frontend/coverage/
+
+# IDE
+.idea/
+.vscode/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+npm-debug.log*
