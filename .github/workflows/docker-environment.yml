@@ -1,0 +1,118 @@
+name: Docker Environment
+
+on:
+    push:
+    pull_request:
+    workflow_dispatch:
+
+permissions:
+    contents: read
+
+concurrency:
+    group: docker-environment-${{ github.workflow }}-${{ github.ref }}
+    cancel-in-progress: true
+
+jobs:
+    docker-environment:
+        name: Fresh Clone Docker Gate
+        runs-on: ubuntu-latest
+        timeout-minutes: 20
+
+        steps:
+            - name: Checkout source
+              uses: actions/checkout@v7
+
+            - name: Show Docker versions
+              run: |
+                  docker --version
+                  docker compose version
+
+            - name: Verify clean dependency state
+              run: |
+                  test ! -d backend/node_modules
+                  test ! -d frontend/node_modules
+                  test ! -d backend/dist
+                  test ! -d frontend/.next
+                  test ! -f .env
+
+            - name: Verify required committed files
+              run: |
+                  test -f .env.example
+                  test -f docker-compose.yml
+
+                  test -f backend/Dockerfile
+                  test -f backend/package-lock.json
+
+                  test -f frontend/Dockerfile
+                  test -f frontend/package-lock.json
+
+                  test -x scripts/bootstrap
+
+            - name: Bootstrap application
+              run: ./scripts/bootstrap
+
+            - name: Verify bootstrap idempotency
+              run: ./scripts/bootstrap
+
+            - name: Show services
+              run: docker compose ps
+
+            - name: Check PostgreSQL
+              run: |
+                  docker compose exec -T postgres sh -c \
+                    'pg_isready -U "$POSTGRES_USER" -d "$POSTGRES_DB"'
+
+                  docker compose exec -T postgres sh -c \
+                    'psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -c "SELECT 1;"'
+
+            - name: Check Redis
+              run: |
+                  test "$(docker compose exec -T redis redis-cli ping | tr -d '\r')" = "PONG"
+
+            - name: Check backend health
+              run: |
+                  curl --fail \
+                    --retry 10 \
+                    --retry-delay 2 \
+                    --retry-connrefused \
+                    http://localhost:3001/health
+
+            - name: Check frontend
+              run: |
+                  curl --fail \
+                    --retry 10 \
+                    --retry-delay 2 \
+                    --retry-connrefused \
+                    http://localhost:3000 \
+                    > /dev/null
+
+            - name: Build backend
+              run: |
+                  docker compose run \
+                    --rm \
+                    --no-deps \
+                    backend \
+                    npm run build
+
+            - name: Build frontend
+              run: |
+                  docker compose stop frontend
+
+                  rm -rf frontend/.next
+
+                  docker compose run \
+                    --rm \
+                    --no-deps \
+                    frontend \
+                    npm run build
+
+            - name: Show logs on failure
+              if: failure()
+              run: |
+                  docker compose ps
+                  docker compose logs --no-color
+
+            - name: Cleanup
+              if: always()
+              run: |
+                  docker compose down -v --remove-orphans
