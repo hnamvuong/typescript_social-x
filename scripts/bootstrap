@@ -71,6 +71,12 @@ for attempt in $(seq 1 30); do
   sleep 2
 done
 
+echo "==> Applying database migrations..."
+docker compose exec -T backend npx prisma migrate deploy
+
+echo "==> Generating Prisma Client..."
+docker compose exec -T backend npx prisma generate
+
 echo "==> Current services:"
 docker compose ps
 

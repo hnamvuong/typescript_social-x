@@ -55,6 +55,12 @@ for ($attempt = 1; $attempt -le $maxAttempts; $attempt++) {
     Start-Sleep -Seconds 2
 }
 
+Write-Host "==> Applying database migrations..."
+docker compose exec -T backend npx prisma migrate deploy
+
+Write-Host "==> Generating Prisma Client..."
+docker compose exec -T backend npx prisma generate
+
 Write-Host "==> Current services:"
 docker compose ps
 
