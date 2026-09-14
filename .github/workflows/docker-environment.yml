@@ -97,14 +97,23 @@ jobs:
             - name: Build frontend
               run: |
                   docker compose stop frontend
-
-                  rm -rf frontend/.next
+                  docker compose run \
+                    --rm \
+                    --no-deps \
+                    frontend \
+                    sh -c 'rm -rf /app/.next'
 
                   docker compose run \
                     --rm \
                     --no-deps \
                     frontend \
                     npm run build
+
+                  docker compose run \
+                    --rm \
+                    --no-deps \
+                    frontend \
+                    sh -c 'rm -rf /app/.next'
 
             - name: Show logs on failure
               if: failure()
@@ -115,4 +124,10 @@ jobs:
             - name: Cleanup
               if: always()
               run: |
+                  docker compose stop frontend || true
+                  docker compose run \
+                    --rm \
+                    --no-deps \
+                    frontend \
+                    sh -c 'rm -rf /app/.next' || true
                   docker compose down -v --remove-orphans
